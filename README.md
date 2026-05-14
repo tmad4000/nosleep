@@ -5,7 +5,7 @@
 [![Shell](https://img.shields.io/badge/shell-bash-89e051)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS-blue)](#)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
-[![Network](https://img.shields.io/badge/network-zero-brightgreen)](#privacy--what-this-script-actually-does)
+[![Telemetry](https://img.shields.io/badge/telemetry-none-brightgreen)](#privacy--what-this-script-actually-does)
 
 ```bash
 nosleep on     # disable sleep until you say otherwise
@@ -118,9 +118,18 @@ The timed mode (`nosleep 3600`) installs a `trap` on `INT` and `TERM`, so closin
 
 ## Privacy — what this script actually does
 
-**Zero network access.** This script only invokes `/usr/bin/pmset` on your local machine. There is no telemetry, no analytics, no update check, no phone-home. Read [the source](nosleep.sh) — it's 150 lines.
+**No telemetry, no analytics, no phone-home.** Every command except `nosleep update` is local-only — they only invoke `/usr/bin/pmset` on your Mac. Read [the source](nosleep.sh) — it's ~200 lines.
 
-Search the script for `curl`, `wget`, or any network call. There aren't any.
+The single network call in the script is the opt-in `nosleep update` command, which fetches the installer from GitHub to upgrade your local binary. It only fires when you ask for it. No background checks, no version pings, no update banners.
+
+## Updating
+
+```bash
+nosleep update          # If you installed via curl
+brew upgrade nosleep    # If you installed via Homebrew
+```
+
+Both are idempotent — safe to run any time.
 
 ---
 

@@ -48,11 +48,13 @@ OPTIONS:
     -v, --version        Print version
     --setup              Install passwordless sudoers rule for pmset
     --uninstall          Remove the binary, sudoers rule, re-enable sleep
+    update               Fetch and install the latest release (opt-in network call)
 
 NOTES:
     - Ctrl+C cleanly re-enables sleep (trap handler).
     - Safe to close the laptop lid while running.
-    - Network access: NONE. This script only calls pmset.
+    - No telemetry. The ONLY network call in this script is the opt-in
+      `nosleep update` command. Every other command is local-only.
 
 FIRST-TIME SETUP:
     Run `nosleep --setup` once. It writes a sudoers rule that allows
@@ -79,6 +81,16 @@ setup_sudoers() {
     echo "${rule}" | sudo tee /etc/sudoers.d/pmset > /dev/null
     sudo chmod 0440 /etc/sudoers.d/pmset
     echo "Done. You can now run 'nosleep' without a password prompt."
+}
+
+update_self() {
+    echo "Updating nosleep to the latest release..."
+    echo "(Fetching the installer from github.com/tmad4000/nosleep)"
+    if ! command -v curl >/dev/null 2>&1; then
+        echo "Error: curl is required to update." >&2
+        exit 1
+    fi
+    curl -fsSL "https://raw.githubusercontent.com/tmad4000/nosleep/main/install.sh" | bash
 }
 
 uninstall_self() {
@@ -136,6 +148,10 @@ case "${1:-}" in
         ;;
     --uninstall)
         uninstall_self
+        exit 0
+        ;;
+    update|--update)
+        update_self
         exit 0
         ;;
     on|--on|-on|-o)
