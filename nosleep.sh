@@ -19,26 +19,38 @@ show_help() {
 nosleep - Keep your Mac awake (lid open or closed)
 
 USAGE:
-    nosleep [OPTIONS] [DURATION_SECONDS]
+    nosleep [DURATION_SECONDS]    # Timed mode (auto-recovers)
+    nosleep on                    # Indefinite mode (until `nosleep off`)
+    nosleep off                   # Re-enable sleep
+    nosleep status                # Show current sleep state
 
-DURATION:
-    Time in seconds to keep awake. Default: 1800 (30 minutes).
-        nosleep              # 30 minutes
-        nosleep 3600         # 1 hour
-        nosleep 28800        # 8 hours
+TIMED MODE (default):
+    nosleep              # 30 minutes
+    nosleep 3600         # 1 hour
+    nosleep 28800        # 8 hours
+
+    Timed mode is the SAFE default — sleep auto-recovers when the timer
+    expires. If you previously ran `nosleep on` and forgot, running plain
+    `nosleep` overrides indefinite mode and re-enables sleep after the
+    duration. Use plain `nosleep` as a rescue if you're not sure whether
+    you left sleep disabled.
+
+INDEFINITE MODE:
+    nosleep on           # Disables sleep until you run `nosleep off`
+    nosleep off          # Re-enable sleep right now
+
+    Aliases: `--on`, `-on`, `-o`  → on
+             `--off`, `-off`, `-O` → off
+             `--status`, `-s`      → status
 
 OPTIONS:
-    -h, --help        Show this help
-    -v, --version     Print version
-    -s, --status      Show current sleep settings
-    --on              Disable sleep indefinitely (until --off)
-    --off             Re-enable sleep
-    --setup           Install passwordless sudoers rule for pmset
-    --uninstall       Remove the binary, sudoers rule, re-enable sleep
+    -h, --help           Show this help
+    -v, --version        Print version
+    --setup              Install passwordless sudoers rule for pmset
+    --uninstall          Remove the binary, sudoers rule, re-enable sleep
 
 NOTES:
     - Ctrl+C cleanly re-enables sleep (trap handler).
-    - Timed runs auto-re-enable sleep when the duration elapses.
     - Safe to close the laptop lid while running.
     - Network access: NONE. This script only calls pmset.
 
@@ -89,7 +101,18 @@ uninstall_self() {
 
 show_status() {
     echo "Current sleep settings:"
-    sudo pmset -g | grep -E "(SleepDisabled|sleep|disablesleep)" || true
+    pmset -g | grep -E "(SleepDisabled|sleep|disablesleep)" || true
+    echo ""
+    if is_sleep_disabled; then
+        echo "Sleep is currently DISABLED (Mac will stay awake, including with lid closed)."
+    else
+        echo "Sleep is currently ENABLED (default behavior)."
+    fi
+}
+
+is_sleep_disabled() {
+    # Returns 0 (true) if disablesleep is currently 1. No sudo needed for read.
+    pmset -g 2>/dev/null | grep -E "SleepDisabled[[:space:]]+1" >/dev/null 2>&1
 }
 
 require_macos
@@ -103,7 +126,7 @@ case "${1:-}" in
         echo "nosleep ${NOSLEEP_VERSION}"
         exit 0
         ;;
-    -s|--status)
+    -s|--status|status)
         show_status
         exit 0
         ;;
@@ -115,13 +138,16 @@ case "${1:-}" in
         uninstall_self
         exit 0
         ;;
-    --on|-on)
+    on|--on|-on|-o)
         echo "Disabling sleep indefinitely..."
         sudo pmset -a disablesleep 1
-        echo "Sleep disabled. Run 'nosleep --off' to re-enable."
+        echo "Sleep disabled. Options to re-enable:"
+        echo "  • 'nosleep off'        — re-enable right now"
+        echo "  • 'nosleep'            — auto-recover in 30 minutes (rescue mode)"
+        echo "  • 'nosleep <seconds>'  — auto-recover after a specific duration"
         exit 0
         ;;
-    --off|-off)
+    off|--off|-off|-O)
         echo "Re-enabling sleep..."
         sudo pmset -a disablesleep 0
         echo "Sleep re-enabled."
@@ -132,7 +158,7 @@ esac
 DURATION=${1:-1800}
 
 if ! [[ "${DURATION}" =~ ^[0-9]+$ ]]; then
-    echo "Error: Duration must be a positive integer (seconds)." >&2
+    echo "Error: unknown command or invalid duration: ${1}" >&2
     echo "Run 'nosleep --help' for usage." >&2
     exit 1
 fi
@@ -140,10 +166,20 @@ fi
 MINUTES=$((DURATION / 60))
 HOURS=$((MINUTES / 60))
 
-if [ ${HOURS} -gt 0 ]; then
-    echo "Disabling sleep for ${HOURS}h $((MINUTES % 60))m..."
+format_duration() {
+    if [ ${HOURS} -gt 0 ]; then
+        printf "%dh %dm" "${HOURS}" "$((MINUTES % 60))"
+    else
+        printf "%d minutes" "${MINUTES}"
+    fi
+}
+
+if is_sleep_disabled; then
+    echo "⚠  Sleep is already disabled (probably from 'nosleep on')."
+    echo "   Overriding to timed mode — re-enabling sleep in $(format_duration)."
+    echo "   (Press Ctrl+C to re-enable sleep right now. Run 'nosleep on' again to go back to indefinite.)"
 else
-    echo "Disabling sleep for ${MINUTES} minutes..."
+    echo "Disabling sleep for $(format_duration)..."
 fi
 
 sudo pmset -a disablesleep 1

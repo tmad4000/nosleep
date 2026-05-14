@@ -8,10 +8,13 @@
 [![Network](https://img.shields.io/badge/network-zero-brightgreen)](#privacy--what-this-script-actually-does)
 
 ```bash
-nosleep --on   # disable sleep until you say otherwise
-nosleep --off  # re-enable
+nosleep on     # disable sleep until you say otherwise
+nosleep off    # re-enable
 nosleep 3600   # disable for 1 hour, auto-re-enable
+nosleep        # 30 minutes (the safe default — auto-recovers)
 ```
+
+![nosleep demo](assets/demo.gif)
 
 That's it. ~150 lines of bash, zero dependencies, zero network calls.
 
@@ -33,20 +36,20 @@ That's the whole product.
 
 ## Install
 
-### Option 1: Homebrew (recommended)
-
-```bash
-brew install tmad4000/nosleep/nosleep
-nosleep --setup   # one-time: grant passwordless pmset (prompts for password once)
-```
-
-### Option 2: Curl
+### Option 1: Curl (recommended — zero dependencies)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tmad4000/nosleep/main/install.sh | bash
 ```
 
-The installer drops the script at `/usr/local/bin/nosleep`, then runs `nosleep --setup` for you. Both steps are reversible (see [Uninstall](#uninstall) below).
+Drops the script at `/usr/local/bin/nosleep` and prompts you to run `nosleep --setup`. Works on any Mac with curl (i.e. all of them).
+
+### Option 2: Homebrew
+
+```bash
+brew install tmad4000/nosleep/nosleep
+nosleep --setup   # one-time: grant passwordless pmset (prompts for password once)
+```
 
 ### Option 3: Manual
 
@@ -61,22 +64,24 @@ nosleep --setup
 ## Usage
 
 ```bash
-nosleep              # 30 minutes (default), auto-re-enable
+nosleep              # 30 minutes (safe default, auto-recovers)
 nosleep 3600         # 1 hour
 nosleep 28800        # 8 hours (overnight job)
-nosleep --on         # indefinitely, until you run --off
-nosleep --off        # re-enable sleep right now
-nosleep --status     # show current sleep state
+nosleep on           # indefinitely, until you run `nosleep off`
+nosleep off          # re-enable sleep right now
+nosleep status       # show current sleep state
 nosleep --help       # full help
 nosleep --version
 ```
 
+Aliases for `on`/`off`/`status`: `--on`/`-on`/`-o`, `--off`/`-off`/`-O`, `--status`/`-s`. All work the same.
+
 **Workflow for a long agent session:**
 
 ```bash
-nosleep --on
+nosleep on
 # ...close the lid, walk to the coffee shop, your agent keeps running...
-nosleep --off       # when you're done
+nosleep off         # when you're done
 ```
 
 **Workflow for a finite task:**
@@ -85,6 +90,8 @@ nosleep --off       # when you're done
 nosleep 7200        # 2 hours
 # Ctrl+C any time to cleanly re-enable sleep
 ```
+
+**The rescue lever:** if you ran `nosleep on` an hour ago and aren't sure whether you're still in indefinite mode, just run plain `nosleep`. It overrides indefinite mode and auto-recovers in 30 minutes, with a clear "overriding indefinite mode" message. Use it whenever you're not sure.
 
 ---
 
