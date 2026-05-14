@@ -12,7 +12,7 @@
 
 set -e
 
-NOSLEEP_VERSION="1.0.1"
+NOSLEEP_VERSION="1.0.2"
 
 show_help() {
     cat << 'EOF'
