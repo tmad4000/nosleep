@@ -16,7 +16,29 @@ nosleep        # 30 minutes (the safe default — auto-recovers)
 
 ![nosleep demo](assets/demo.gif)
 
-That's it. ~150 lines of bash, zero dependencies, zero network calls.
+That's it. ~200 lines of bash, zero dependencies, no telemetry.
+
+## Install
+
+```bash
+# Curl (works on any Mac, no dependencies):
+curl -fsSL https://raw.githubusercontent.com/tmad4000/nosleep/main/install.sh | bash
+
+# Or via Homebrew:
+brew install tmad4000/nosleep/nosleep && nosleep --setup
+```
+
+Either path installs the binary to `/usr/local/bin/nosleep`, then runs `nosleep --setup` once to grant passwordless access to `pmset` (and only `pmset`). Fully reversible — `nosleep --uninstall` removes everything.
+
+<details>
+<summary>Manual install</summary>
+
+```bash
+curl -o /usr/local/bin/nosleep https://raw.githubusercontent.com/tmad4000/nosleep/main/nosleep.sh
+chmod +x /usr/local/bin/nosleep
+nosleep --setup
+```
+</details>
 
 ---
 
@@ -31,33 +53,6 @@ The friction is real — Apple's built-in `caffeinate` only prevents **idle** sl
 There's exactly one knob that actually works: `sudo pmset -a disablesleep 1`. But it prompts for a password every time, so nobody uses it. `nosleep` is that knob, wrapped to need a password exactly once (during setup), with a clean Ctrl+C trap so it can't leave your machine awake forever.
 
 That's the whole product.
-
----
-
-## Install
-
-### Option 1: Curl (recommended — zero dependencies)
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/tmad4000/nosleep/main/install.sh | bash
-```
-
-Drops the script at `/usr/local/bin/nosleep` and prompts you to run `nosleep --setup`. Works on any Mac with curl (i.e. all of them).
-
-### Option 2: Homebrew
-
-```bash
-brew install tmad4000/nosleep/nosleep
-nosleep --setup   # one-time: grant passwordless pmset (prompts for password once)
-```
-
-### Option 3: Manual
-
-```bash
-curl -o /usr/local/bin/nosleep https://raw.githubusercontent.com/tmad4000/nosleep/main/nosleep.sh
-chmod +x /usr/local/bin/nosleep
-nosleep --setup
-```
 
 ---
 
