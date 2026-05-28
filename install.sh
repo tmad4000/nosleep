@@ -7,7 +7,8 @@
 # What this does:
 #   1. Downloads nosleep.sh to /usr/local/bin/nosleep
 #   2. Makes it executable
-#   3. Optionally writes /etc/sudoers.d/pmset (passwordless pmset)
+#   3. Symlinks /usr/local/bin/nsl → nosleep (opt out with --no-shortcut)
+#   4. Optionally writes /etc/sudoers.d/pmset (passwordless pmset)
 #
 # Every step is reversible: `nosleep --uninstall` undoes everything.
 
@@ -17,6 +18,14 @@ NOSLEEP_REPO="${NOSLEEP_REPO:-tmad4000/nosleep}"
 NOSLEEP_BRANCH="${NOSLEEP_BRANCH:-main}"
 NOSLEEP_URL="https://raw.githubusercontent.com/${NOSLEEP_REPO}/${NOSLEEP_BRANCH}/nosleep.sh"
 INSTALL_PATH="/usr/local/bin/nosleep"
+SHORTCUT_PATH="/usr/local/bin/nsl"
+
+INSTALL_SHORTCUT=1
+for arg in "$@"; do
+    case "${arg}" in
+        --no-shortcut) INSTALL_SHORTCUT=0 ;;
+    esac
+done
 
 bold=$(tput bold 2>/dev/null || true)
 green=$(tput setaf 2 2>/dev/null || true)
@@ -61,6 +70,25 @@ else
     sudo chmod +x "${INSTALL_PATH}"
 fi
 ok "Installed ${INSTALL_PATH}"
+
+if [ "${INSTALL_SHORTCUT}" = "1" ]; then
+    if [ -e "${SHORTCUT_PATH}" ] || [ -L "${SHORTCUT_PATH}" ]; then
+        existing_target="$(readlink "${SHORTCUT_PATH}" 2>/dev/null || true)"
+        if [ "${existing_target}" = "${INSTALL_PATH}" ]; then
+            ok "Shortcut ${SHORTCUT_PATH} already points to nosleep"
+        else
+            warn "Skipping ${SHORTCUT_PATH} shortcut — path already exists (target: ${existing_target:-not a symlink})"
+            warn "Remove it manually and re-run with no flags if you want the shortcut."
+        fi
+    else
+        if [ -w "$(dirname "${SHORTCUT_PATH}")" ]; then
+            ln -s "${INSTALL_PATH}" "${SHORTCUT_PATH}"
+        else
+            sudo ln -s "${INSTALL_PATH}" "${SHORTCUT_PATH}"
+        fi
+        ok "Installed shortcut ${SHORTCUT_PATH} → nosleep (skip with --no-shortcut)"
+    fi
+fi
 
 if [ -f /etc/sudoers.d/pmset ]; then
     ok "Passwordless pmset already configured (/etc/sudoers.d/pmset exists)"

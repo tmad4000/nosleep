@@ -24,6 +24,9 @@ USAGE:
     nosleep off                   # Re-enable sleep
     nosleep status                # Show current sleep state
 
+    The installer also creates `nsl` as a short alias for `nosleep`
+    (skip with `install.sh --no-shortcut`).
+
 TIMED MODE (default):
     nosleep              # 30 minutes
     nosleep 3600         # 1 hour
@@ -98,6 +101,13 @@ uninstall_self() {
     sudo pmset -a disablesleep 0 2>/dev/null || true
 
     local bin="/usr/local/bin/nosleep"
+    local shortcut="/usr/local/bin/nsl"
+
+    if [ -L "${shortcut}" ] && [ "$(readlink "${shortcut}")" = "${bin}" ]; then
+        echo "Removing ${shortcut} shortcut..."
+        sudo rm -f "${shortcut}"
+    fi
+
     if [ -f "${bin}" ]; then
         echo "Removing ${bin}..."
         sudo rm -f "${bin}"
