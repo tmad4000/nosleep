@@ -12,7 +12,28 @@
 
 set -e
 
-NOSLEEP_VERSION="1.0.2"
+NOSLEEP_VERSION="1.1.0"
+
+LOCK_FILE="/tmp/.nosleep-$(id -u).pid"
+
+# If a timed-mode timer is already running, kill it (without letting it
+# re-enable sleep) so the new invocation restarts the duration from scratch.
+# This is what makes triggering nosleep a second time (e.g. via a voice
+# command or text-expansion shortcut) act as a "reset the 30 minutes" snooze
+# instead of racing two independent timers against each other.
+supersede_previous_timer() {
+    [ -f "${LOCK_FILE}" ] || return 0
+    local old_pid
+    old_pid=$(cat "${LOCK_FILE}" 2>/dev/null) || return 0
+    if [ -n "${old_pid}" ] && kill -0 "${old_pid}" 2>/dev/null; then
+        echo "A nosleep timer is already running (pid ${old_pid}) — restarting it from scratch."
+        kill -USR1 "${old_pid}" 2>/dev/null || true
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            kill -0 "${old_pid}" 2>/dev/null || break
+            sleep 0.2
+        done
+    fi
+}
 
 show_help() {
     cat << 'EOF'
@@ -37,6 +58,11 @@ TIMED MODE (default):
     `nosleep` overrides indefinite mode and re-enables sleep after the
     duration. Use plain `nosleep` as a rescue if you're not sure whether
     you left sleep disabled.
+
+    Running `nosleep` again while a timer is already counting down
+    restarts the duration from scratch (snooze behavior) instead of
+    racing two timers against each other — handy for a voice command
+    or text-expansion trigger you can just repeat.
 
 INDEFINITE MODE:
     nosleep on           # Disables sleep until you run `nosleep off`
@@ -200,6 +226,8 @@ format_duration() {
     fi
 }
 
+supersede_previous_timer
+
 if is_sleep_disabled; then
     echo "⚠  Sleep is already disabled (probably from 'nosleep on')."
     echo "   Overriding to timed mode — re-enabling sleep in $(format_duration)."
@@ -209,16 +237,24 @@ else
 fi
 
 sudo pmset -a disablesleep 1
+echo $$ > "${LOCK_FILE}"
 
 cleanup() {
     echo ""
     echo "Re-enabling sleep..."
     sudo pmset -a disablesleep 0
+    rm -f "${LOCK_FILE}" 2>/dev/null || true
     exit 0
 }
 trap cleanup INT TERM
+
+# A newer nosleep invocation superseded us — hand off silently. It has
+# already (or is about to) written its own PID to the lock file, so don't
+# touch it and don't re-enable sleep out from under it.
+trap 'exit 0' USR1
 
 sleep "${DURATION}"
 
 echo "Time's up. Re-enabling sleep..."
 sudo pmset -a disablesleep 0
+rm -f "${LOCK_FILE}" 2>/dev/null || true
