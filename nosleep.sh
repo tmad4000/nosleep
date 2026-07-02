@@ -12,7 +12,7 @@
 
 set -e
 
-NOSLEEP_VERSION="1.0.2"
+NOSLEEP_VERSION="1.1.0"
 
 LOCK_FILE="/tmp/.nosleep-$(id -u).pid"
 
