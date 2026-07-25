@@ -12,9 +12,26 @@
 
 set -e
 
-NOSLEEP_VERSION="1.1.0"
+NOSLEEP_VERSION="1.2.0"
 
 LOCK_FILE="/tmp/.nosleep-$(id -u).pid"
+DISPLAY_STATE_FILE="/tmp/.nosleep-displaysleep-$(id -u).val"
+
+# Pull --keep-display / -kd out of the args wherever it appears, leaving the
+# rest of the positional args (command, duration) untouched.
+KEEP_DISPLAY=0
+_ARGS=()
+for _arg in "$@"; do
+    case "${_arg}" in
+        --keep-display|-kd)
+            KEEP_DISPLAY=1
+            ;;
+        *)
+            _ARGS+=("${_arg}")
+            ;;
+    esac
+done
+set -- "${_ARGS[@]+"${_ARGS[@]}"}"
 
 # If a timed-mode timer is already running, kill it (without letting it
 # re-enable sleep) so the new invocation restarts the duration from scratch.
@@ -45,6 +62,11 @@ USAGE:
     nosleep off                   # Re-enable sleep
     nosleep status                # Show current sleep state
 
+    Add --keep-display (or -kd) to any of the above to also stop the
+    DISPLAY from sleeping — e.g. `nosleep on --keep-display`. Without
+    it, the screen still blanks/locks on its normal displaysleep timer
+    even though the machine underneath stays awake.
+
     The installer also creates `nsl` as a short alias for `nosleep`
     (skip with `install.sh --no-shortcut`).
 
@@ -71,6 +93,13 @@ INDEFINITE MODE:
     Aliases: `--on`, `-on`, `-o`  → on
              `--off`, `-off`, `-O` → off
              `--status`, `-s`      → status
+
+DISPLAY SLEEP:
+    --keep-display, -kd   Also disable display sleep (screen stays lit,
+                           won't lock from idle). Works with `on`, `off`,
+                           and timed mode. `nosleep off` (with or without
+                           the flag) always restores whatever displaysleep
+                           value was in effect before you ran `on`.
 
 OPTIONS:
     -h, --help           Show this help
@@ -125,6 +154,7 @@ update_self() {
 uninstall_self() {
     echo "Re-enabling sleep (in case it was disabled)..."
     sudo pmset -a disablesleep 0 2>/dev/null || true
+    restore_display 2>/dev/null || true
 
     local bin="/usr/local/bin/nosleep"
     local shortcut="/usr/local/bin/nsl"
@@ -149,18 +179,46 @@ uninstall_self() {
 
 show_status() {
     echo "Current sleep settings:"
-    pmset -g | grep -E "(SleepDisabled|sleep|disablesleep)" || true
+    pmset -g | grep -E "(SleepDisabled|sleep|disablesleep|displaysleep)" || true
     echo ""
     if is_sleep_disabled; then
         echo "Sleep is currently DISABLED (Mac will stay awake, including with lid closed)."
     else
         echo "Sleep is currently ENABLED (default behavior)."
     fi
+    if [ -f "${DISPLAY_STATE_FILE}" ]; then
+        echo "Display sleep is currently DISABLED too (screen stays on, won't lock from idle)."
+    fi
 }
 
 is_sleep_disabled() {
     # Returns 0 (true) if disablesleep is currently 1. No sudo needed for read.
     pmset -g 2>/dev/null | grep -E "SleepDisabled[[:space:]]+1" >/dev/null 2>&1
+}
+
+get_displaysleep() {
+    pmset -g 2>/dev/null | awk '/^ *displaysleep/{print $2; exit}'
+}
+
+# Idempotent: only remembers the pre-existing displaysleep value the first
+# time it's called, so repeated `on --keep-display` invocations (or a timed
+# mode that supersedes an `on`) don't clobber the real value with 0.
+keep_display_on() {
+    if [ ! -f "${DISPLAY_STATE_FILE}" ]; then
+        get_displaysleep > "${DISPLAY_STATE_FILE}"
+    fi
+    sudo pmset -a displaysleep 0
+    echo "Display sleep disabled too — screen will stay on and won't lock from idle."
+}
+
+restore_display() {
+    [ -f "${DISPLAY_STATE_FILE}" ] || return 0
+    local prev
+    prev=$(cat "${DISPLAY_STATE_FILE}" 2>/dev/null)
+    rm -f "${DISPLAY_STATE_FILE}"
+    if [ -n "${prev}" ]; then
+        sudo pmset -a displaysleep "${prev}"
+    fi
 }
 
 require_macos
@@ -193,6 +251,9 @@ case "${1:-}" in
     on|--on|-on|-o)
         echo "Disabling sleep indefinitely..."
         sudo pmset -a disablesleep 1
+        if [ "${KEEP_DISPLAY}" -eq 1 ]; then
+            keep_display_on
+        fi
         echo "Sleep disabled. Options to re-enable:"
         echo "  • 'nosleep off'        — re-enable right now"
         echo "  • 'nosleep'            — auto-recover in 30 minutes (rescue mode)"
@@ -202,6 +263,7 @@ case "${1:-}" in
     off|--off|-off|-O)
         echo "Re-enabling sleep..."
         sudo pmset -a disablesleep 0
+        restore_display
         echo "Sleep re-enabled."
         exit 0
         ;;
@@ -237,12 +299,16 @@ else
 fi
 
 sudo pmset -a disablesleep 1
+if [ "${KEEP_DISPLAY}" -eq 1 ]; then
+    keep_display_on
+fi
 echo $$ > "${LOCK_FILE}"
 
 cleanup() {
     echo ""
     echo "Re-enabling sleep..."
     sudo pmset -a disablesleep 0
+    restore_display
     rm -f "${LOCK_FILE}" 2>/dev/null || true
     exit 0
 }
@@ -250,11 +316,12 @@ trap cleanup INT TERM
 
 # A newer nosleep invocation superseded us — hand off silently. It has
 # already (or is about to) written its own PID to the lock file, so don't
-# touch it and don't re-enable sleep out from under it.
+# touch it and don't re-enable sleep (or displaysleep) out from under it.
 trap 'exit 0' USR1
 
 sleep "${DURATION}"
 
 echo "Time's up. Re-enabling sleep..."
 sudo pmset -a disablesleep 0
+restore_display
 rm -f "${LOCK_FILE}" 2>/dev/null || true
