@@ -16,7 +16,7 @@ nosleep        # 30 minutes (the safe default — auto-recovers)
 
 ![nosleep demo](assets/demo.gif)
 
-That's it. ~200 lines of bash, zero dependencies, no telemetry.
+That's it. ~370 lines of bash, zero dependencies, no telemetry.
 
 ## Install
 
@@ -50,7 +50,7 @@ On **May 13, 2026**, Business Insider ran a story called *"Good news, AI coders:
 
 The friction is real — Apple's built-in `caffeinate` only prevents **idle** sleep. The moment you close the lid, your Mac sleeps anyway and your long-running coding agent, training job, download, or background task dies.
 
-There's exactly one knob that actually works: `sudo pmset -a disablesleep 1`. But it prompts for a password every time, so nobody uses it. `nosleep` is that knob, wrapped to need a password exactly once (during setup), with a clean Ctrl+C trap so it can't leave your machine awake forever.
+There's exactly one knob that actually works: `sudo pmset -a disablesleep 1`. But it prompts for a password every time, so nobody uses it. `nosleep` is that knob, wrapped to need a password exactly once (during setup), with a timed default that auto-recovers and a clean Ctrl+C trap.
 
 That's the whole product.
 
@@ -107,13 +107,21 @@ your_username ALL=(ALL) NOPASSWD: /usr/bin/pmset
 
 That grants passwordless access to **only** `pmset` — not "all sudo," just the power-management binary Apple already ships. Everything else still needs your password.
 
-The timed mode (`nosleep 3600`) installs a `trap` on `INT` and `TERM`, so closing the terminal or Ctrl+C cleanly re-enables sleep. The script will never leave your Mac unable to sleep on its own.
+The timed mode (`nosleep 3600`) installs a `trap` on `INT`, `TERM` and `HUP`, so Ctrl+C or closing the terminal cleanly re-enables sleep, and the countdown re-enables it when it expires.
+
+**Known limits (be aware before leaving a Mac unattended):**
+
+- `nosleep on` is indefinite by design. It exits immediately and leaves no process behind, so nothing will re-enable sleep until you run `nosleep off`.
+- `pmset` settings are persistent system state, so **a reboot does not revoke them.** If the machine reboots while sleep is disabled, it comes back with sleep still disabled.
+- A `kill -9`, kernel panic, or power loss during timed mode skips the trap entirely and strands `disablesleep 1`.
+
+If you're unsure of the current state, `nosleep status` reads it live from `pmset`, and plain `nosleep` is the rescue lever — it auto-recovers in 30 minutes.
 
 ---
 
 ## Privacy — what this script actually does
 
-**No telemetry, no analytics, no phone-home.** Every command except `nosleep update` is local-only — they only invoke `/usr/bin/pmset` on your Mac. Read [the source](nosleep.sh) — it's ~200 lines.
+**No telemetry, no analytics, no phone-home.** Every command except `nosleep update` is local-only — they only invoke `/usr/bin/pmset` on your Mac. Read [the source](nosleep.sh) — it's ~370 lines.
 
 The single network call in the script is the opt-in `nosleep update` command, which fetches the installer from GitHub to upgrade your local binary. It only fires when you ask for it. No background checks, no version pings, no update banners.
 

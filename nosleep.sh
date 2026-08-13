@@ -12,10 +12,18 @@
 
 set -e
 
-NOSLEEP_VERSION="1.2.0"
+NOSLEEP_VERSION="1.2.1"
 
+# The pid file stays in /tmp deliberately: macOS clears /tmp at boot, so a
+# stale pid left by a killed timer can't survive a reboot and collide with a
+# reused pid.
 LOCK_FILE="/tmp/.nosleep-$(id -u).pid"
-DISPLAY_STATE_FILE="/tmp/.nosleep-displaysleep-$(id -u).val"
+
+# The saved displaysleep value must NOT live in /tmp. pmset settings persist
+# across reboot but /tmp does not, so a reboot used to strand displaysleep=0
+# with no record of what to restore.
+STATE_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/nosleep"
+DISPLAY_STATE_FILE="${STATE_DIR}/displaysleep.val"
 
 # Pull --keep-display / -kd out of the args wherever it appears, leaving the
 # rest of the positional args (command, duration) untouched.
@@ -186,8 +194,15 @@ show_status() {
     else
         echo "Sleep is currently ENABLED (default behavior)."
     fi
-    if [ -f "${DISPLAY_STATE_FILE}" ]; then
+    # Report from live pmset, not from whether our state file happens to exist —
+    # the file can be absent while the setting is still applied.
+    if [ "$(get_displaysleep)" = "0" ]; then
         echo "Display sleep is currently DISABLED too (screen stays on, won't lock from idle)."
+        if [ -f "${DISPLAY_STATE_FILE}" ]; then
+            echo "  'nosleep off' will restore displaysleep to $(cat "${DISPLAY_STATE_FILE}")."
+        else
+            echo "  No saved value — 'nosleep off' will restore the macOS default (10)."
+        fi
     fi
 }
 
@@ -205,20 +220,40 @@ get_displaysleep() {
 # mode that supersedes an `on`) don't clobber the real value with 0.
 keep_display_on() {
     if [ ! -f "${DISPLAY_STATE_FILE}" ]; then
-        get_displaysleep > "${DISPLAY_STATE_FILE}"
+        local prev
+        prev=$(get_displaysleep)
+        # Never record 0 as the "previous" value. A 0 here is almost certainly
+        # our own leftover from an earlier run, and saving it would bake
+        # displaysleep=0 in permanently. Fall back to the macOS stock value.
+        if [ -z "${prev}" ] || [ "${prev}" = "0" ]; then
+            prev=10
+        fi
+        mkdir -p "${STATE_DIR}"
+        echo "${prev}" > "${DISPLAY_STATE_FILE}"
     fi
     sudo pmset -a displaysleep 0
     echo "Display sleep disabled too — screen will stay on and won't lock from idle."
 }
 
 restore_display() {
-    [ -f "${DISPLAY_STATE_FILE}" ] || return 0
     local prev
-    prev=$(cat "${DISPLAY_STATE_FILE}" 2>/dev/null)
-    rm -f "${DISPLAY_STATE_FILE}"
-    if [ -n "${prev}" ]; then
-        sudo pmset -a displaysleep "${prev}"
+    if [ -f "${DISPLAY_STATE_FILE}" ]; then
+        prev=$(cat "${DISPLAY_STATE_FILE}" 2>/dev/null)
+    elif [ "$(get_displaysleep)" = "0" ]; then
+        # No saved value, but the display is still pinned on — most likely a
+        # pre-1.2.1 run whose state lived in /tmp and was cleared at boot. The
+        # original value is unrecoverable, so fall back to the macOS default
+        # rather than silently leaving the display unable to sleep.
+        prev=10
+        echo "No saved displaysleep value found — restoring the macOS default (${prev})."
+    else
+        return 0
     fi
+    [ -n "${prev}" ] || return 0
+    # Restore first, delete second: under 'set -e' a failing sudo would
+    # otherwise lose the saved value permanently.
+    sudo pmset -a displaysleep "${prev}"
+    rm -f "${DISPLAY_STATE_FILE}"
 }
 
 require_macos
@@ -250,6 +285,10 @@ case "${1:-}" in
         ;;
     on|--on|-on|-o)
         echo "Disabling sleep indefinitely..."
+        # Cancel any countdown still running, or it would later fire and
+        # re-enable sleep out from under indefinite mode.
+        supersede_previous_timer
+        rm -f "${LOCK_FILE}" 2>/dev/null || true
         sudo pmset -a disablesleep 1
         if [ "${KEEP_DISPLAY}" -eq 1 ]; then
             keep_display_on
@@ -262,6 +301,8 @@ case "${1:-}" in
         ;;
     off|--off|-off|-O)
         echo "Re-enabling sleep..."
+        supersede_previous_timer
+        rm -f "${LOCK_FILE}" 2>/dev/null || true
         sudo pmset -a disablesleep 0
         restore_display
         echo "Sleep re-enabled."
@@ -312,7 +353,9 @@ cleanup() {
     rm -f "${LOCK_FILE}" 2>/dev/null || true
     exit 0
 }
-trap cleanup INT TERM
+# HUP matters as much as INT/TERM: closing the terminal window sends SIGHUP,
+# and without it here the countdown died leaving sleep disabled forever.
+trap cleanup INT TERM HUP
 
 # A newer nosleep invocation superseded us — hand off silently. It has
 # already (or is about to) written its own PID to the lock file, so don't
