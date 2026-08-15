@@ -65,7 +65,7 @@ show_help() {
 nosleep - Keep your Mac awake (lid open or closed)
 
 USAGE:
-    nosleep [DURATION_SECONDS]    # Timed mode (auto-recovers)
+    nosleep [DURATION]            # Timed mode (auto-recovers)
     nosleep on                    # Indefinite mode (until `nosleep off`)
     nosleep off                   # Re-enable sleep
     nosleep status                # Show current sleep state
@@ -80,8 +80,14 @@ USAGE:
 
 TIMED MODE (default):
     nosleep              # 30 minutes
-    nosleep 3600         # 1 hour
-    nosleep 28800        # 8 hours
+    nosleep 2h           # 2 hours
+    nosleep 45m          # 45 minutes
+    nosleep 1h30m        # 1.5 hours
+    nosleep 3600         # a bare number is still seconds
+
+    DURATION is either a bare number of seconds or one or more
+    <number><unit> pairs, where unit is s, m, or h. Spelled-out units
+    work too — 30min, 2hours, 90sec.
 
     Timed mode is the SAFE default — sleep auto-recovers when the timer
     expires. If you previously ran `nosleep on` and forgot, running plain
@@ -296,7 +302,8 @@ case "${1:-}" in
         echo "Sleep disabled. Options to re-enable:"
         echo "  • 'nosleep off'        — re-enable right now"
         echo "  • 'nosleep'            — auto-recover in 30 minutes (rescue mode)"
-        echo "  • 'nosleep <seconds>'  — auto-recover after a specific duration"
+        echo "  • 'nosleep 2h'         — auto-recover after a specific duration"
+        echo "                           (also 45m, 1h30m, or bare seconds like 3600)"
         exit 0
         ;;
     off|--off|-off|-O)
@@ -310,10 +317,49 @@ case "${1:-}" in
         ;;
 esac
 
-DURATION=${1:-1800}
+# Accepts bare seconds (1800, the original contract) or unit-suffixed
+# durations (90s, 45m, 2h, 1h30m, "30 min"). Echoes the total in seconds;
+# returns non-zero without output if the input isn't a duration at all.
+#
+# Alternatives are ordered longest-first on purpose: with `s` before
+# `seconds`, "30seconds" would match `s` and silently mean 30 SECONDS
+# instead of erroring or parsing as intended.
+NOSLEEP_UNIT_RE='(seconds|second|secs|sec|s|minutes|minute|mins|min|m|hours|hour|hrs|hr|h)'
 
-if ! [[ "${DURATION}" =~ ^[0-9]+$ ]]; then
-    echo "Error: unknown command or invalid duration: ${1}" >&2
+parse_duration() {
+    local input
+    # Lowercase via tr, not ${x,,} — macOS ships bash 3.2.
+    input=$(printf '%s' "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    if [[ "${input}" =~ ^[0-9]+$ ]]; then
+        echo "${input}"
+        return 0
+    fi
+    # One or more <number><unit> pairs and nothing else.
+    if [[ ! "${input}" =~ ^([0-9]+${NOSLEEP_UNIT_RE})+$ ]]; then
+        return 1
+    fi
+    local total=0 rest="${input}" num unit
+    while [[ "${rest}" =~ ^([0-9]+)${NOSLEEP_UNIT_RE}(.*)$ ]]; do
+        num="${BASH_REMATCH[1]}"
+        unit="${BASH_REMATCH[2]}"
+        rest="${BASH_REMATCH[3]}"
+        case "${unit}" in
+            s*) total=$((total + num)) ;;
+            m*) total=$((total + num * 60)) ;;
+            h*) total=$((total + num * 3600)) ;;
+        esac
+    done
+    echo "${total}"
+}
+
+# Join the remaining args so `nosleep 30 min` parses as one duration instead
+# of silently taking "30" as seconds and dropping "min" on the floor.
+DURATION_INPUT="$*"
+[ -n "${DURATION_INPUT}" ] || DURATION_INPUT=1800
+
+if ! DURATION=$(parse_duration "${DURATION_INPUT}"); then
+    echo "Error: unknown command or invalid duration: ${DURATION_INPUT}" >&2
+    echo "Durations are bare seconds (1800) or units (90s, 45m, 2h, 1h30m)." >&2
     echo "Run 'nosleep --help' for usage." >&2
     exit 1
 fi
@@ -324,9 +370,20 @@ HOURS=$((MINUTES / 60))
 format_duration() {
     if [ ${HOURS} -gt 0 ]; then
         printf "%dh %dm" "${HOURS}" "$((MINUTES % 60))"
-    else
+    elif [ ${MINUTES} -gt 0 ]; then
         printf "%d minutes" "${MINUTES}"
+    else
+        printf "%d seconds" "${DURATION}"
     fi
+}
+
+# Timed mode is the command people run blind (voice trigger, text expansion,
+# muscle memory), so it prints its own escape hatches the way `on` does —
+# otherwise nothing on screen ever mentions --help or the other durations.
+print_timed_hint() {
+    echo "  • other durations: 'nosleep 2h', 'nosleep 45m', 'nosleep 1h30m'"
+    echo "  • stop early:      Ctrl+C, or 'nosleep off' from another shell"
+    echo "  • indefinite:      'nosleep on'   ·   all options: 'nosleep --help'"
 }
 
 supersede_previous_timer
@@ -334,10 +391,10 @@ supersede_previous_timer
 if is_sleep_disabled; then
     echo "⚠  Sleep is already disabled (probably from 'nosleep on')."
     echo "   Overriding to timed mode — re-enabling sleep in $(format_duration)."
-    echo "   (Press Ctrl+C to re-enable sleep right now. Run 'nosleep on' again to go back to indefinite.)"
 else
     echo "Disabling sleep for $(format_duration)..."
 fi
+print_timed_hint
 
 sudo pmset -a disablesleep 1
 if [ "${KEEP_DISPLAY}" -eq 1 ]; then

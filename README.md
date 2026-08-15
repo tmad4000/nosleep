@@ -10,13 +10,13 @@
 ```bash
 nosleep on     # disable sleep until you say otherwise
 nosleep off    # re-enable
-nosleep 3600   # disable for 1 hour, auto-re-enable
+nosleep 2h     # disable for 2 hours, auto-re-enable
 nosleep        # 30 minutes (the safe default — auto-recovers)
 ```
 
 ![nosleep demo](assets/demo.gif)
 
-That's it. ~370 lines of bash, zero dependencies, no telemetry.
+That's it. ~430 lines of bash, zero dependencies, no telemetry.
 
 ## Install
 
@@ -60,8 +60,11 @@ That's the whole product.
 
 ```bash
 nosleep              # 30 minutes (safe default, auto-recovers)
-nosleep 3600         # 1 hour
-nosleep 28800        # 8 hours (overnight job)
+nosleep 45m          # 45 minutes
+nosleep 2h           # 2 hours
+nosleep 1h30m        # 1.5 hours
+nosleep 8h           # overnight job
+nosleep 3600         # a bare number is still seconds
 nosleep on           # indefinitely, until you run `nosleep off`
 nosleep off          # re-enable sleep right now
 nosleep status       # show current sleep state
@@ -69,7 +72,11 @@ nosleep --help       # full help
 nosleep --version
 ```
 
+Durations take `s`/`m`/`h` (and the spelled-out forms — `30min`, `2hours`, `90sec` all work), can be combined (`1h30m`), and a bare number still means seconds so old habits and scripts keep working.
+
 Aliases for `on`/`off`/`status`: `--on`/`-on`/`-o`, `--off`/`-off`/`-O`, `--status`/`-s`. All work the same.
+
+Timed mode prints its own escape hatches when it starts — other durations, how to stop early, and where the full help lives — so you never have to remember the flags to get out.
 
 **Workflow for a long agent session:**
 
@@ -82,7 +89,7 @@ nosleep off         # when you're done
 **Workflow for a finite task:**
 
 ```bash
-nosleep 7200        # 2 hours
+nosleep 2h          # 2 hours
 # Ctrl+C any time to cleanly re-enable sleep
 ```
 
@@ -92,7 +99,7 @@ nosleep 7200        # 2 hours
 
 ## How it works
 
-`nosleep` is a 150-line bash wrapper around one Apple-supported command:
+`nosleep` is a bash wrapper around one Apple-supported command:
 
 ```bash
 sudo pmset -a disablesleep 1   # disable sleep
@@ -107,7 +114,7 @@ your_username ALL=(ALL) NOPASSWD: /usr/bin/pmset
 
 That grants passwordless access to **only** `pmset` — not "all sudo," just the power-management binary Apple already ships. Everything else still needs your password.
 
-The timed mode (`nosleep 3600`) installs a `trap` on `INT`, `TERM` and `HUP`, so Ctrl+C or closing the terminal cleanly re-enables sleep, and the countdown re-enables it when it expires.
+The timed mode (`nosleep 2h`) installs a `trap` on `INT`, `TERM` and `HUP`, so Ctrl+C or closing the terminal cleanly re-enables sleep, and the countdown re-enables it when it expires.
 
 **Known limits (be aware before leaving a Mac unattended):**
 
@@ -121,7 +128,7 @@ If you're unsure of the current state, `nosleep status` reads it live from `pmse
 
 ## Privacy — what this script actually does
 
-**No telemetry, no analytics, no phone-home.** Every command except `nosleep update` is local-only — they only invoke `/usr/bin/pmset` on your Mac. Read [the source](nosleep.sh) — it's ~370 lines.
+**No telemetry, no analytics, no phone-home.** Every command except `nosleep update` is local-only — they only invoke `/usr/bin/pmset` on your Mac. Read [the source](nosleep.sh) — it's ~430 lines.
 
 The single network call in the script is the opt-in `nosleep update` command, which fetches the installer from GitHub to upgrade your local binary. It only fires when you ask for it. No background checks, no version pings, no update banners.
 
@@ -154,7 +161,7 @@ sudo rm /etc/sudoers.d/pmset    # if you ran --setup
 ## FAQ
 
 **Q: Won't this drain my battery if I forget to turn it off?**
-A: Yes — that's why timed mode exists. `nosleep 3600` auto-re-enables after an hour. The `--on` / `--off` mode is for sessions you actively manage.
+A: Yes — that's why timed mode exists. `nosleep 1h` auto-re-enables after an hour. The `--on` / `--off` mode is for sessions you actively manage.
 
 **Q: Is this safe to run with the lid closed?**
 A: Yes, that's the entire point. The Mac will continue running on battery (or AC if plugged in) until you call `--off` or the timer expires.
@@ -166,7 +173,7 @@ A: Yes, M1/M2/M3/M4 all use the same `pmset` interface.
 A: Amphetamine is great if you want a GUI. `nosleep` is for people who live in the terminal — one command, scriptable, no app to install, no menu bar icon. Use whichever fits.
 
 **Q: Does this prevent the screen from turning off too?**
-A: `disablesleep` affects system sleep, not display sleep. Combine with `caffeinate -d` if you also want the display to stay on.
+A: Not by default — `disablesleep` affects system sleep, not display sleep. Add `--keep-display` (or `-kd`) to any command if you also want the screen to stay lit: `nosleep 2h --keep-display`. `nosleep off` restores your previous display-sleep timer.
 
 **Q: What about clamshell mode with an external monitor?**
 A: That already works on macOS by default when connected to power + external display + keyboard. `nosleep` is for the *no-external-monitor* case — i.e. you actually want your closed laptop to keep computing.
